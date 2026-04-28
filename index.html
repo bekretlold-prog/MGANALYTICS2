@@ -1,0 +1,246 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+  <meta charset="UTF-8"/>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <title>MG Analytics</title>
+  <link rel="icon" type="image/svg+xml" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><rect width='100' height='100' rx='20' fill='%230d1117'/><rect x='15' y='60' width='14' height='28' rx='4' fill='%2358a6ff'/><rect x='35' y='40' width='14' height='48' rx='4' fill='%2358a6ff'/><rect x='55' y='25' width='14' height='63' rx='4' fill='%2358a6ff'/><rect x='75' y='45' width='14' height='43' rx='4' fill='%2358a6ff'/><polyline points='22,58 42,38 62,23 82,43' fill='none' stroke='%233fb950' stroke-width='5' stroke-linecap='round' stroke-linejoin='round'/></svg>"/>
+  <link rel="stylesheet" href="assets/style.css"/>
+
+  <!-- External libraries -->
+  <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
+  <script src="https://cdn.sheetjs.com/xlsx-0.20.2/package/dist/xlsx.full.min.js"></script>
+</head>
+<body>
+<div class="app">
+
+  <!-- Topbar -->
+  <header class="topbar">
+    <div class="topbar-brand">
+      📊 <span id="brand-name">MG Analytics</span>
+    </div>
+    <nav class="nav">
+      <button class="nav-btn active" data-tab="dashboard">🏠 Дашборд</button>
+      <button class="nav-btn" data-tab="forecast">📈 Прогноз</button>
+      <button class="nav-btn" data-tab="menu">🍽️ Меню</button>
+      <button class="nav-btn" data-tab="upload">📤 Загрузка</button>
+    </nav>
+  </header>
+
+  <!-- Main content -->
+  <main class="main">
+
+    <!-- DASHBOARD -->
+    <section id="tab-dashboard" class="tab-section active">
+      <div id="dash-content">
+        <div id="dash-kpi" class="card-grid"></div>
+        <div class="dash-grid">
+          <div class="chart-box">
+            <div class="chart-title">Выручка за 14 дней</div>
+            <canvas id="trend-chart" height="120"></canvas>
+          </div>
+          <div class="chart-box">
+            <div class="chart-title">Каналы оплаты сегодня</div>
+            <canvas id="channel-chart" height="120"></canvas>
+          </div>
+        </div>
+        <div class="dash-grid">
+          <div class="chart-box">
+            <div class="chart-title">Алерты</div>
+            <div id="dash-alerts"></div>
+          </div>
+          <div class="chart-box">
+            <div class="chart-title">Топ-5 блюд сегодня</div>
+            <div id="top-dishes"></div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- FORECAST -->
+    <section id="tab-forecast" class="tab-section">
+      <div class="section-header">
+        <div class="section-title">Прогноз продаж и персонала</div>
+      </div>
+      <div class="forecast-controls">
+        <label style="color:var(--muted);font-size:13px">Дата прогноза:</label>
+        <input type="date" id="forecast-date"/>
+        <button class="btn-primary" id="btn-forecast">Рассчитать</button>
+      </div>
+
+      <div class="card-grid">
+        <div class="sum-card"><div class="sum-label">Дата</div><div class="sum-value" id="fc-date">—</div></div>
+        <div class="sum-card"><div class="sum-label">Прогноз выручки</div><div class="sum-value" id="fc-forecast">—</div></div>
+        <div class="sum-card"><div class="sum-label">Факт выручки</div><div class="sum-value" id="fc-actual">—</div></div>
+        <div class="sum-card"><div class="sum-label">Отклонение</div><div class="sum-value" id="fc-diff">—</div></div>
+        <div class="sum-card"><div class="sum-label">Прогноз чеков</div><div class="sum-value" id="fc-checks">—</div></div>
+        <div class="sum-card"><div class="sum-label">Пиковый час</div><div class="sum-value" id="fc-peak">—</div></div>
+      </div>
+
+      <div class="charts-row">
+        <div class="chart-box">
+          <div class="chart-title">Прогноз vs Факт по часам</div>
+          <canvas id="fc-chart" height="160"></canvas>
+        </div>
+        <div class="chart-box">
+          <div class="chart-title">Потребность в персонале</div>
+          <canvas id="staff-chart" height="160"></canvas>
+        </div>
+      </div>
+
+      <div class="table-wrap">
+        <table id="fc-table">
+          <thead>
+            <tr>
+              <th>Час</th>
+              <th>Прогноз ₽</th>
+              <th>Пр. чеков</th>
+              <th>Персонал</th>
+              <th>Факт ₽</th>
+              <th>Факт чеков</th>
+              <th>Откл. %</th>
+              <th>Тренд</th>
+            </tr>
+          </thead>
+          <tbody></tbody>
+        </table>
+      </div>
+    </section>
+
+    <!-- MENU -->
+    <section id="tab-menu" class="tab-section">
+      <div class="section-header">
+        <div class="section-title">Анализ меню</div>
+      </div>
+      <div id="menu-kpi" class="card-grid"></div>
+      <div class="menu-controls">
+        <input type="text" id="menu-search" placeholder="Поиск блюда..."/>
+        <select id="menu-filter"><option>Все</option></select>
+      </div>
+      <div class="charts-row">
+        <div class="chart-box">
+          <div class="chart-title">ABC анализ по выручке</div>
+          <canvas id="abc-chart" height="160"></canvas>
+        </div>
+        <div class="chart-box" style="display:flex;flex-direction:column;justify-content:center">
+          <div style="font-size:13px;color:var(--muted);line-height:2">
+            <div><span style="color:var(--success)">⭐ Звезда</span> — популярно + высокая маржа → держать и продвигать</div>
+            <div><span style="color:#3b82f6">🐴 Рабочая лошадка</span> — популярно + низкая маржа → поднять цену</div>
+            <div><span style="color:var(--warning)">🧩 Загадка</span> — непопулярно + высокая маржа → продвигать</div>
+            <div><span style="color:var(--danger)">🐶 Собака</span> — непопулярно + низкая маржа → убрать из меню</div>
+          </div>
+        </div>
+      </div>
+      <div id="menu-content">
+        <div class="table-wrap">
+          <table id="menu-table">
+            <thead>
+              <tr>
+                <th>Блюдо</th>
+                <th>Группа</th>
+                <th>Кол-во</th>
+                <th>Выручка</th>
+                <th>Ср. цена</th>
+                <th>Себест.</th>
+                <th>Маржа</th>
+                <th>ABC</th>
+                <th>Матрица</th>
+              </tr>
+            </thead>
+            <tbody></tbody>
+          </table>
+        </div>
+      </div>
+    </section>
+
+    <!-- UPLOAD -->
+    <section id="tab-upload" class="tab-section">
+      <div class="section-header">
+        <div class="section-title">Загрузка отчётов</div>
+      </div>
+
+      <div class="dropzone" id="dropzone">
+        <div class="dropzone-icon">📂</div>
+        <strong>Перетащи файл сюда или нажми для выбора</strong>
+        <p>Поддерживаются: Почасовой отчёт, Prod Mix</p>
+        <p>Система автоматически определит тип отчёта</p>
+        <input type="file" id="file-input" multiple accept=".xlsx,.xls" style="display:none"/>
+      </div>
+
+      <div id="file-list" class="file-list"><span class="muted">Файлы не выбраны</span></div>
+
+      <div class="btn-row">
+        <button class="btn-primary" id="btn-process">▶ Обработать</button>
+        <button class="btn-danger" id="btn-clear-sales">🗑 Очистить продажи</button>
+        <button class="btn-danger" id="btn-clear-menu">🗑 Очистить меню</button>
+      </div>
+
+      <div id="upload-summary"></div>
+
+      <div class="chart-box" style="margin-top:8px">
+        <div class="chart-title">ℹ️ Как загружать</div>
+        <div style="color:var(--muted);font-size:13px;line-height:2">
+          <div>1. Выгружай из iiko отчёты каждый день</div>
+          <div>2. <strong style="color:var(--text)">Почасовой</strong> — отчёт с «Час закрытия» и каналами Альфа/Киоск/Налик</div>
+          <div>3. <strong style="color:var(--text)">Prod Mix</strong> — отчёт с «Количество блюд» и себестоимостью</div>
+          <div>4. Можно загружать несколько файлов сразу — система определит тип каждого</div>
+          <div>5. Дубликаты игнорируются — можно загружать один файл несколько раз</div>
+        </div>
+      </div>
+    </section>
+
+  </main>
+</div>
+
+<!-- Loader -->
+<div id="loader" class="hidden">
+  <div class="loader-box">
+    <div class="loader-spinner"></div>
+    <div id="loader-text">Загрузка...</div>
+  </div>
+</div>
+
+<!-- Toasts -->
+<div id="toasts"></div>
+
+<!-- Scripts: порядок важен! -->
+<script src="core/config.js"></script>
+<script src="core/utils.js"></script>
+<script src="core/db.js"></script>
+<script src="modules/upload/parsers/hourly.js"></script>
+<script src="modules/upload/parsers/prodmix.js"></script>
+<script src="modules/upload/upload.js"></script>
+<script src="modules/forecast/forecast.js"></script>
+<script src="modules/menu/menu.js"></script>
+<script src="modules/dashboard/dashboard.js"></script>
+
+<script>
+  // ---- Router ----
+  document.addEventListener("DOMContentLoaded", () => {
+    // Устанавливаем название ресторана
+    document.getElementById("brand-name").textContent = CONFIG.RESTAURANT_NAME + " Analytics";
+    document.title = CONFIG.RESTAURANT_NAME + " Analytics";
+
+    // Навигация
+    const tabs = document.querySelectorAll(".nav-btn");
+    tabs.forEach(btn => {
+      btn.addEventListener("click", () => {
+        const tabId = btn.dataset.tab;
+        tabs.forEach(b => b.classList.remove("active"));
+        btn.classList.add("active");
+        document.querySelectorAll(".tab-section").forEach(s => s.classList.remove("active"));
+        document.getElementById(`tab-${tabId}`).classList.add("active");
+
+        // Инициализация модуля при первом открытии
+        if (tabId === "forecast" && !window._fcInit) { window._fcInit = true; Forecast.init(); }
+        if (tabId === "menu"     && !window._menuInit) { window._menuInit = true; Menu.init(); }
+        if (tabId === "upload"   && !window._upInit) { window._upInit = true; Upload.init(); }
+      });
+    });
+
+    // Инициализация дашборда
+    Dashboard.init();
+  });
+</script>
+</body>
+</html>
