@@ -49,7 +49,7 @@ const DB = (() => {
 
   async function addSales(records) {
     const all = await getSales();
-    const key = r => `${r.date}|${r.hour}|${r.channel}`;
+    const key = r => `${r.date}|${r.hour}`;
     const existing = new Set(all.map(key));
     const fresh = records.filter(r => !existing.has(key(r)));
     if (!fresh.length) return 0;

@@ -1,113 +1,106 @@
 // ============================================================
 //  modules/upload/parsers/hourly.js
 //  Парсер почасового отчёта из iiko
-//  Каналы: Альфа Банк, Kiosk pay, Наличные
+//  Формат: каждая дата = группа колонок (Сумма / Средняя / Чеков)
 // ============================================================
 
 const HourlyParser = (() => {
 
-  // Названия каналов оплаты как они приходят из iiko
-  const CHANNEL_MAP = {
-    "альфа банк": "alfa",
-    "1. альфа банк": "alfa",
-    "kiosk pay": "kiosk",
-    "наличные": "cash",
-    "итого": "total",
-  };
-
-  function detectChannel(str) {
-    if (!str) return null;
-    const key = str.toString().toLowerCase().trim();
-    return CHANNEL_MAP[key] || null;
+  function parseDateTime(val) {
+    if (!val) return null;
+    const s = String(val);
+    const m = s.match(/(\d{4})-(\d{2})-(\d{2})/);
+    if (m) return `${m[1]}-${m[2]}-${m[3]}`;
+    return Utils.parseDateCell(val);
   }
 
   function parse(buffer) {
     const workbook = XLSX.read(buffer, { type: "array" });
-    const sheet = workbook.Sheets[workbook.SheetNames[0]];
-    const rows = XLSX.utils.sheet_to_json(sheet, { header: 1, defval: "" });
+    const sheet    = workbook.Sheets[workbook.SheetNames[0]];
+    const raw      = XLSX.utils.sheet_to_json(sheet, { header: 1, defval: null });
 
-    if (!rows || rows.length < 5) return { records: [], error: "Файл пустой" };
+    if (!raw || raw.length < 5) return { records: [], error: "Файл пустой" };
 
-    // Ищем строку с "Час закрытия"
+    // 1. Строка заголовка ("Час закрытия")
     let headerIdx = -1;
-    for (let i = 0; i < rows.length; i++) {
-      if (String(rows[i][0]).includes("Час закрытия")) { headerIdx = i; break; }
+    for (let i = 0; i < raw.length; i++) {
+      if (raw[i] && raw[i].some(c => String(c || "").includes("Час закрытия"))) {
+        headerIdx = i; break;
+      }
     }
     if (headerIdx === -1) return { records: [], error: "Не найден заголовок 'Час закрытия'" };
 
-    // Ищем строку с типами оплаты (выше заголовка)
-    let channelRowIdx = -1;
-    for (let offset = 1; offset <= 4; offset++) {
-      const idx = headerIdx - offset;
-      if (idx < 0) break;
-      const rowStr = rows[idx].map(c => String(c).toLowerCase());
-      if (rowStr.some(c => c.includes("альфа") || c.includes("kiosk") || c.includes("наличн"))) {
-        channelRowIdx = idx;
-        break;
-      }
-    }
-    if (channelRowIdx === -1) return { records: [], error: "Не найдена строка с типами оплаты" };
+    const headerRow = raw[headerIdx];
 
-    // Ищем строку с датой (ещё выше)
+    // 2. Строка с датами (выше заголовка)
     let dateRowIdx = -1;
-    for (let offset = 1; offset <= 4; offset++) {
-      const idx = channelRowIdx - offset;
-      if (idx < 0) break;
-      const hasDate = rows[idx].some(c => Utils.parseDateCell(c) !== null);
-      if (hasDate) { dateRowIdx = idx; break; }
-    }
-
-    // Определяем колонки для каждого канала
-    // Структура: Чеков | пусто | Сумма | Себест% | Средний чек — на каждый канал
-    const channelRow = rows[channelRowIdx];
-    const headerRow = rows[headerIdx];
-    const channels = []; // { name, channel, checkCol, sumCol, costCol, avgCol }
-
-    let currentChannel = null;
-    for (let j = 1; j < channelRow.length; j++) {
-      const ch = detectChannel(channelRow[j]);
-      if (ch) currentChannel = ch;
-      if (currentChannel && headerRow[j]) {
-        const h = String(headerRow[j]).toLowerCase();
-        if (h.includes("чеков")) channels.push({ channel: currentChannel, checkCol: j, sumCol: j + 2, costCol: j + 3, avgCol: j + 4 });
+    for (let i = headerIdx - 1; i >= 0; i--) {
+      if (raw[i] && raw[i].some(c => parseDateTime(c) !== null)) {
+        dateRowIdx = i; break;
       }
     }
+    if (dateRowIdx === -1) return { records: [], error: "Не найдена строка с датами" };
 
-    if (!channels.length) return { records: [], error: "Не найдены колонки каналов оплаты" };
+    const dateRow = raw[dateRowIdx];
 
-    // Извлекаем дату
-    let dateStr = null;
-    if (dateRowIdx >= 0) {
-      for (let j = 1; j < rows[dateRowIdx].length; j++) {
-        dateStr = Utils.parseDateCell(rows[dateRowIdx][j]);
-        if (dateStr) break;
+    // 3. Для каждой даты находим колонки Сумма и Чеков
+    const groups = [];
+    for (let j = 0; j < dateRow.length; j++) {
+      const dateStr = parseDateTime(dateRow[j]);
+      if (!dateStr) continue;
+
+      // sumCol — ближайшая "Сумма" в headerRow от j
+      let sumCol = -1;
+      for (let k = j; k < Math.min(j + 5, headerRow.length); k++) {
+        if (String(headerRow[k] || "").includes("Сумма")) { sumCol = k; break; }
       }
-    }
-    // fallback: берём из имени файла или сегодня
-    if (!dateStr) dateStr = Utils.formatDate(new Date());
+      if (sumCol === -1) sumCol = j;
 
-    // Читаем строки с часами
+      // checksCol — ближайший "Чеков" правее sumCol
+      let checksCol = -1;
+      for (let k = sumCol + 1; k < Math.min(sumCol + 10, headerRow.length); k++) {
+        if (String(headerRow[k] || "").toLowerCase().includes("чеков")) { checksCol = k; break; }
+      }
+      if (checksCol === -1) continue;
+
+      // avgCol — "Средняя" между sumCol и checksCol
+      let avgCol = -1;
+      for (let k = sumCol + 1; k < checksCol; k++) {
+        if (String(headerRow[k] || "").toLowerCase().includes("средняя")) { avgCol = k; break; }
+      }
+
+      groups.push({ date: dateStr, sumCol, checksCol, avgCol });
+    }
+
+    if (!groups.length) return { records: [], error: "Не найдено ни одной даты с данными" };
+
+    // 4. Читаем строки с часами
     const records = [];
-    for (let i = headerIdx + 1; i < rows.length; i++) {
-      const hourRaw = rows[i][0];
-      if (hourRaw === "" || String(hourRaw).toLowerCase().includes("итого")) break;
-      const hour = parseInt(String(hourRaw), 10);
+    for (let i = headerIdx + 1; i < raw.length; i++) {
+      const row = raw[i];
+      if (!row) continue;
+      const hourRaw = row[0];
+      if (hourRaw === null || hourRaw === undefined) continue;
+      const hourStr = String(hourRaw).trim();
+      if (hourStr.toLowerCase().includes("итого") || hourStr === "") break;
+      const hour = parseInt(hourStr, 10);
       if (isNaN(hour)) continue;
 
-      for (const ch of channels) {
-        if (ch.channel === "total") continue;
-        const checks = parseInt(rows[i][ch.checkCol], 10) || 0;
-        const sum = parseFloat(String(rows[i][ch.sumCol]).replace(",", ".")) || 0;
-        const costPct = parseFloat(String(rows[i][ch.costCol]).replace(",", ".")) || 0;
-        const avg = parseFloat(String(rows[i][ch.avgCol]).replace(",", ".")) || 0;
+      for (const g of groups) {
+        const sum    = parseFloat(String(row[g.sumCol]    || 0).replace(",", ".")) || 0;
+        const checks = parseFloat(String(row[g.checksCol] || 0).replace(",", ".")) || 0;
+        const avg    = g.avgCol >= 0
+          ? (parseFloat(String(row[g.avgCol] || 0).replace(",", ".")) || 0)
+          : (checks > 0 ? sum / checks : 0);
 
-        if (checks > 0 || sum > 0) {
-          records.push({ date: dateStr, hour, channel: ch.channel, checks, sum, costPct, avg });
+        if (sum > 0 || checks > 0) {
+          records.push({ date: g.date, hour, channel: "total", sum, checks, avg, costPct: 0 });
         }
       }
     }
 
-    return { records, error: null, date: dateStr, count: records.length };
+    const dates = [...new Set(records.map(r => r.date))];
+    return { records, error: null, date: dates[0], dates, count: records.length };
   }
 
   return { parse };
