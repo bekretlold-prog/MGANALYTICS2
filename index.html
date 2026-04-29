@@ -4,7 +4,6 @@
   <meta charset="UTF-8"/>
   <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
   <title>MG Analytics</title>
-  <script src="https://unpkg.com/xlsx@0.20.2/dist/xlsx.full.min.js"></script>
   <link rel="icon" type="image/svg+xml" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><rect width='100' height='100' rx='20' fill='%230d1117'/><rect x='15' y='60' width='14' height='28' rx='4' fill='%2358a6ff'/><rect x='35' y='40' width='14' height='48' rx='4' fill='%2358a6ff'/><rect x='55' y='25' width='14' height='63' rx='4' fill='%2358a6ff'/><rect x='75' y='45' width='14' height='43' rx='4' fill='%2358a6ff'/><polyline points='22,58 42,38 62,23 82,43' fill='none' stroke='%233fb950' stroke-width='5' stroke-linecap='round' stroke-linejoin='round'/></svg>"/>
   <link rel="stylesheet" href="assets/style.css"/>
 
@@ -206,34 +205,46 @@
 <div id="toasts"></div>
 
 <!-- Scripts: порядок важен! -->
-<!-- Библиотеки -->
-<script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
-<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
-
-<!-- Core -->
 <script src="core/config.js"></script>
-<script src="core/db.js"></script>
 <script src="core/utils.js"></script>
-
-<!-- Parsers -->
+<script src="core/db.js"></script>
 <script src="modules/upload/parsers/hourly.js"></script>
 <script src="modules/upload/parsers/prodmix.js"></script>
-
-<!-- Modules -->
-<script src="modules/dashboard/dashboard.js"></script>
+<script src="modules/upload/upload.js"></script>
 <script src="modules/forecast/forecast.js"></script>
 <script src="modules/menu/menu.js"></script>
-<script src="modules/upload/upload.js"></script>
+<script src="modules/dashboard/dashboard.js"></script>
 
 <script>
-    document.addEventListener("DOMContentLoaded", () => {
-        console.log("🚀 MG Analytics запущен");
+  // ---- Router ----
+  document.addEventListener("DOMContentLoaded", () => {
+    // Устанавливаем название ресторана
+    document.getElementById("brand-name").textContent = CONFIG.RESTAURANT_NAME + " Analytics";
+    document.title = CONFIG.RESTAURANT_NAME + " Analytics";
 
-        if (typeof Dashboard !== "undefined") Dashboard.init();
-        if (typeof Forecast  !== "undefined") Forecast.init();
-        if (typeof Menu      !== "undefined") Menu.init();
-        if (typeof Upload    !== "undefined") Upload.init();
+    // Навигация
+    const tabs = document.querySelectorAll(".nav-btn");
+    tabs.forEach(btn => {
+      btn.addEventListener("click", () => {
+        const tabId = btn.dataset.tab;
+        tabs.forEach(b => b.classList.remove("active"));
+        btn.classList.add("active");
+        document.querySelectorAll(".tab-section").forEach(s => s.classList.remove("active"));
+        document.getElementById(`tab-${tabId}`).classList.add("active");
+
+        // Инициализация модуля при первом открытии
+        if (tabId === "forecast" && !window._fcInit) { window._fcInit = true; Forecast.init(); }
+        if (tabId === "menu"     && !window._menuInit) { window._menuInit = true; Menu.init(); }
+        if (tabId === "upload"   && !window._upInit) { window._upInit = true; Upload.init(); }
+      });
     });
+
+    // Предзагружаем данные ОДИН РАЗ при старте — модули берут из кэша
+    Utils.showLoader("Загружаем данные...");
+    Promise.all([DB.getSales(), DB.getMenu()])
+      .catch(() => {})
+      .finally(() => { Utils.hideLoader(); Dashboard.init(); });
+  });
 </script>
 </body>
 </html>

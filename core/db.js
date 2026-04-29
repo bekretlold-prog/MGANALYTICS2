@@ -1,112 +1,99 @@
 // ============================================================
-// core/db.js — локальное хранилище (localStorage)
-// Поддерживает sales, menu, hourly
+//  core/db.js — хранилище данных (npoint.io)
+//  Умный кэш: один запрос на старте, повторные не идут в сеть
 // ============================================================
 
 const DB = (() => {
-    const STORAGE_KEYS = {
-        SALES: 'mganalytics_sales',
-        MENU: 'mganalytics_menu',
-        HOURLY: 'mganalytics_hourly'
-    };
+  const BASE = "https://api.npoint.io";
 
-    function _loadFromStorage(key, defaultValue = []) {
-        const data = localStorage.getItem(key);
-        if (!data) return defaultValue;
-        try {
-            return JSON.parse(data);
-        } catch (e) {
-            console.error(`Ошибка парсинга ${key}:`, e);
-            return defaultValue;
-        }
-    }
+  // Promise-кэш: если запрос уже идёт — ждём его, не дублируем
+  let _promises = { sales: null, menu: null };
+  let _cache    = { sales: null, menu: null };
 
-    function _saveToStorage(key, data) {
-        localStorage.setItem(key, JSON.stringify(data));
-        return data;
-    }
+  async function _load(binId, key) {
+    // Уже загружено — отдаём сразу
+    if (_cache[key] !== null) return _cache[key];
+    // Уже идёт запрос — ждём его результат
+    if (_promises[key]) return _promises[key];
 
-    // ---------- SALES ----------
-    async function getSales() {
-        return _loadFromStorage(STORAGE_KEYS.SALES);
-    }
+    _promises[key] = fetch(`${BASE}/${binId}`)
+      .then(res => {
+        if (!res.ok) throw new Error(`Ошибка загрузки (${res.status})`);
+        return res.json();
+      })
+      .then(data => {
+        _cache[key] = Array.isArray(data) ? data : [];
+        return _cache[key];
+      })
+      .catch(err => {
+        _promises[key] = null; // сброс чтобы можно было повторить
+        throw err;
+      });
 
-    async function addSales(records) {
-        const all = await getSales();
-        const key = r => `${r.date}|${r.hour}|${r.channel}`;
-        const existing = new Set(all.map(key));
-        const fresh = records.filter(r => !existing.has(key(r)));
-        if (!fresh.length) return 0;
-        const merged = [...all, ...fresh];
-        _saveToStorage(STORAGE_KEYS.SALES, merged);
-        return fresh.length;
-    }
+    return _promises[key];
+  }
 
-    async function clearSales() {
-        _saveToStorage(STORAGE_KEYS.SALES, []);
-    }
+  async function _save(binId, records) {
+    const res = await fetch(`${BASE}/${binId}`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(records),
+    });
+    if (!res.ok) throw new Error(`Ошибка сохранения (${res.status})`);
+  }
 
-    // ---------- MENU ----------
-    async function getMenu() {
-        return _loadFromStorage(STORAGE_KEYS.MENU);
-    }
+  // ---------- SALES ----------
+  async function getSales() {
+    return _load(CONFIG.NPOINT.SALES, "sales");
+  }
 
-    async function addMenu(records) {
-        const all = await getMenu();
-        const key = r => `${r.date}|${r.dish}`;
-        const existing = new Set(all.map(key));
-        const fresh = records.filter(r => !existing.has(key(r)));
-        if (!fresh.length) return 0;
-        const merged = [...all, ...fresh];
-        _saveToStorage(STORAGE_KEYS.MENU, merged);
-        return fresh.length;
-    }
+  async function addSales(records) {
+    const all = await getSales();
+    const key = r => `${r.date}|${r.hour}`;
+    const existing = new Set(all.map(key));
+    const fresh = records.filter(r => !existing.has(key(r)));
+    if (!fresh.length) return 0;
+    const merged = [...all, ...fresh];
+    await _save(CONFIG.NPOINT.SALES, merged);
+    _cache.sales = merged;
+    return fresh.length;
+  }
 
-    async function clearMenu() {
-        _saveToStorage(STORAGE_KEYS.MENU, []);
-    }
+  async function clearSales() {
+    await _save(CONFIG.NPOINT.SALES, []);
+    _cache.sales = [];
+    _promises.sales = null;
+  }
 
-    // ---------- HOURLY ----------
-    async function getHourly() {
-        return _loadFromStorage(STORAGE_KEYS.HOURLY);
-    }
+  // ---------- MENU ----------
+  async function getMenu() {
+    return _load(CONFIG.NPOINT.MENU, "menu");
+  }
 
-    async function addHourly(records) {
-        const all = await getHourly();
-        const key = r => `${r.date}|${r.hour}`;
-        const existing = new Set(all.map(key));
-        const fresh = records.filter(r => !existing.has(key(r)));
-        if (!fresh.length) return 0;
-        const merged = [...all, ...fresh];
-        _saveToStorage(STORAGE_KEYS.HOURLY, merged);
-        return fresh.length;
-    }
+  async function addMenu(records) {
+    const all = await getMenu();
+    const key = r => `${r.date}|${r.dish}`;
+    const existing = new Set(all.map(key));
+    const fresh = records.filter(r => !existing.has(key(r)));
+    if (!fresh.length) return 0;
+    const merged = [...all, ...fresh];
+    await _save(CONFIG.NPOINT.MENU, merged);
+    _cache.menu = merged;
+    return fresh.length;
+  }
 
-    async function clearHourly() {
-        _saveToStorage(STORAGE_KEYS.HOURLY, []);
-    }
+  async function clearMenu() {
+    await _save(CONFIG.NPOINT.MENU, []);
+    _cache.menu = [];
+    _promises.menu = null;
+  }
 
-    // ---------- Вспомогательные ----------
-    function clearCache() {
-        console.log('Cache cleared (localStorage)');
-    }
+  function clearCache() {
+    _cache    = { sales: null, menu: null };
+    _promises = { sales: null, menu: null };
+  }
 
-    function getStorageSize() {
-        let total = 0;
-        for (let key in localStorage) {
-            if (localStorage.hasOwnProperty(key)) {
-                total += localStorage[key].length;
-            }
-        }
-        return (total / 1024).toFixed(2) + ' KB';
-    }
-
-    return {
-        getSales, addSales, clearSales,
-        getMenu, addMenu, clearMenu,
-        getHourly, addHourly, clearHourly,
-        clearCache, getStorageSize
-    };
+  return { getSales, addSales, clearSales, getMenu, addMenu, clearMenu, clearCache };
 })();
 
 window.DB = DB;
