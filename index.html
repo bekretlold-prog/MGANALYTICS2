@@ -216,36 +216,29 @@
 <script src="modules/menu/menu.js"></script>
 <script src="modules/dashboard/dashboard.js"></script>
 
+<script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+
+<script src="core/config.js"></script>
+<script src="core/db.js"></script>
+<script src="core/utils.js"></script>
+
+<script src="modules/upload/parsers/hourly.js"></script>
+<script src="modules/upload/parsers/prodmix.js"></script>
+
+<script src="modules/dashboard/dashboard.js"></script>
+<script src="modules/forecast/forecast.js"></script>
+<script src="modules/menu/menu.js"></script>
+<script src="modules/upload/upload.js"></script>
+
 <script>
-  // ---- Router ----
-  document.addEventListener("DOMContentLoaded", () => {
-    // Устанавливаем название ресторана
-    document.getElementById("brand-name").textContent = CONFIG.RESTAURANT_NAME + " Analytics";
-    document.title = CONFIG.RESTAURANT_NAME + " Analytics";
-
-    // Навигация
-    const tabs = document.querySelectorAll(".nav-btn");
-    tabs.forEach(btn => {
-      btn.addEventListener("click", () => {
-        const tabId = btn.dataset.tab;
-        tabs.forEach(b => b.classList.remove("active"));
-        btn.classList.add("active");
-        document.querySelectorAll(".tab-section").forEach(s => s.classList.remove("active"));
-        document.getElementById(`tab-${tabId}`).classList.add("active");
-
-        // Инициализация модуля при первом открытии
-        if (tabId === "forecast" && !window._fcInit) { window._fcInit = true; Forecast.init(); }
-        if (tabId === "menu"     && !window._menuInit) { window._menuInit = true; Menu.init(); }
-        if (tabId === "upload"   && !window._upInit) { window._upInit = true; Upload.init(); }
-      });
+    // Запуск всех модулей после загрузки
+    document.addEventListener("DOMContentLoaded", () => {
+        if (window.Dashboard) Dashboard.init();
+        if (window.Forecast)  Forecast.init();
+        if (window.Menu)      Menu.init();
+        if (window.Upload)    Upload.init();
     });
-
-    // Предзагружаем данные ОДИН РАЗ при старте — модули берут из кэша
-    Utils.showLoader("Загружаем данные...");
-    Promise.all([DB.getSales(), DB.getMenu()])
-      .catch(() => {})
-      .finally(() => { Utils.hideLoader(); Dashboard.init(); });
-  });
 </script>
 </body>
 </html>
