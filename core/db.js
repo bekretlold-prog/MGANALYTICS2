@@ -1,97 +1,103 @@
 // ============================================================
-//  core/db.js — хранилище данных (npoint.io)
-//  Умный кэш: один запрос на старте, повторные не идут в сеть
+//  core/db.js — хранилище данных (IndexedDB)
+//  Данные хранятся локально в браузере, работает офлайн
 // ============================================================
 
 const DB = (() => {
-  const BASE = "https://api.npoint.io";
+  const DB_NAME    = "RestaurantAnalytics";
+  const DB_VERSION = 1;
+  let _db = null;
 
-  // Promise-кэш: если запрос уже идёт — ждём его, не дублируем
-  let _promises = { sales: null, menu: null };
-  let _cache    = { sales: null, menu: null };
-
-  async function _load(binId, key) {
-    // Уже загружено — отдаём сразу
-    if (_cache[key] !== null) return _cache[key];
-    // Уже идёт запрос — ждём его результат
-    if (_promises[key]) return _promises[key];
-
-    _promises[key] = fetch(`${BASE}/${binId}`)
-      .then(res => {
-        if (!res.ok) throw new Error(`Ошибка загрузки (${res.status})`);
-        return res.json();
-      })
-      .then(data => {
-        _cache[key] = Array.isArray(data) ? data : [];
-        return _cache[key];
-      })
-      .catch(err => {
-        _promises[key] = null; // сброс чтобы можно было повторить
-        throw err;
-      });
-
-    return _promises[key];
+  // Открываем/создаём базу
+  function openDB() {
+    if (_db) return Promise.resolve(_db);
+    return new Promise((resolve, reject) => {
+      const req = indexedDB.open(DB_NAME, DB_VERSION);
+      req.onerror = () => reject(req.error);
+      req.onsuccess = () => { _db = req.result; resolve(_db); };
+      req.onupgradeneeded = e => {
+        const db = e.target.result;
+        if (!db.objectStoreNames.contains("sales")) {
+          const s = db.createObjectStore("sales", { keyPath: "id", autoIncrement: true });
+          s.createIndex("date", "date", { unique: false });
+          s.createIndex("date_hour", ["date","hour"], { unique: false });
+        }
+        if (!db.objectStoreNames.contains("menu")) {
+          const m = db.createObjectStore("menu", { keyPath: "id", autoIncrement: true });
+          m.createIndex("date", "date", { unique: false });
+          m.createIndex("date_dish", ["date","dish"], { unique: false });
+        }
+      };
+    });
   }
 
-  async function _save(binId, records) {
-    const res = await fetch(`${BASE}/${binId}`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(records),
+  // Получить все записи из store
+  async function getAll(storeName) {
+    const db = await openDB();
+    return new Promise((resolve, reject) => {
+      const tx  = db.transaction(storeName, "readonly");
+      const req = tx.objectStore(storeName).getAll();
+      req.onsuccess = () => resolve(req.result);
+      req.onerror   = () => reject(req.error);
     });
-    if (!res.ok) throw new Error(`Ошибка сохранения (${res.status})`);
+  }
+
+  // Добавить записи с дедупликацией
+  async function addWithDedup(storeName, records, keyFn) {
+    const db  = await openDB();
+    const all = await getAll(storeName);
+    const existing = new Set(all.map(keyFn));
+    const fresh = records.filter(r => !existing.has(keyFn(r)));
+    if (!fresh.length) return 0;
+
+    return new Promise((resolve, reject) => {
+      const tx    = db.transaction(storeName, "readwrite");
+      const store = tx.objectStore(storeName);
+      fresh.forEach(r => store.add(r));
+      tx.oncomplete = () => resolve(fresh.length);
+      tx.onerror    = () => reject(tx.error);
+    });
+  }
+
+  // Очистить store
+  async function clearStore(storeName) {
+    const db = await openDB();
+    return new Promise((resolve, reject) => {
+      const tx  = db.transaction(storeName, "readwrite");
+      tx.objectStore(storeName).clear();
+      tx.oncomplete = resolve;
+      tx.onerror    = () => reject(tx.error);
+    });
   }
 
   // ---------- SALES ----------
   async function getSales() {
-    return _load(CONFIG.NPOINT.SALES, "sales");
+    return getAll("sales");
   }
 
   async function addSales(records) {
-    const all = await getSales();
-    const key = r => `${r.date}|${r.hour}`;
-    const existing = new Set(all.map(key));
-    const fresh = records.filter(r => !existing.has(key(r)));
-    if (!fresh.length) return 0;
-    const merged = [...all, ...fresh];
-    await _save(CONFIG.NPOINT.SALES, merged);
-    _cache.sales = merged;
-    return fresh.length;
+    return addWithDedup("sales", records, r => `${r.date}|${r.hour}`);
   }
 
   async function clearSales() {
-    await _save(CONFIG.NPOINT.SALES, []);
-    _cache.sales = [];
-    _promises.sales = null;
+    return clearStore("sales");
   }
 
   // ---------- MENU ----------
   async function getMenu() {
-    return _load(CONFIG.NPOINT.MENU, "menu");
+    return getAll("menu");
   }
 
   async function addMenu(records) {
-    const all = await getMenu();
-    const key = r => `${r.date}|${r.dish}`;
-    const existing = new Set(all.map(key));
-    const fresh = records.filter(r => !existing.has(key(r)));
-    if (!fresh.length) return 0;
-    const merged = [...all, ...fresh];
-    await _save(CONFIG.NPOINT.MENU, merged);
-    _cache.menu = merged;
-    return fresh.length;
+    return addWithDedup("menu", records, r => `${r.date}|${r.dish}`);
   }
 
   async function clearMenu() {
-    await _save(CONFIG.NPOINT.MENU, []);
-    _cache.menu = [];
-    _promises.menu = null;
+    return clearStore("menu");
   }
 
-  function clearCache() {
-    _cache    = { sales: null, menu: null };
-    _promises = { sales: null, menu: null };
-  }
+  // clearCache — оставляем для совместимости, IndexedDB не кэшируется в памяти
+  function clearCache() {}
 
   return { getSales, addSales, clearSales, getMenu, addMenu, clearMenu, clearCache };
 })();
