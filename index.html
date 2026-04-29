@@ -206,38 +206,33 @@
 <div id="toasts"></div>
 
 <!-- Scripts: порядок важен! -->
-<script src="core/config.js"></script>
-<script src="core/utils.js"></script>
-<script src="core/db.js"></script>
-<script src="modules/upload/parsers/hourly.js"></script>
-<script src="modules/upload/parsers/prodmix.js"></script>
-<script src="modules/upload/upload.js"></script>
-<script src="modules/forecast/forecast.js"></script>
-<script src="modules/menu/menu.js"></script>
-<script src="modules/dashboard/dashboard.js"></script>
-
+<!-- Библиотеки -->
 <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
-<script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
 
+<!-- Core -->
 <script src="core/config.js"></script>
 <script src="core/db.js"></script>
 <script src="core/utils.js"></script>
 
+<!-- Parsers -->
 <script src="modules/upload/parsers/hourly.js"></script>
 <script src="modules/upload/parsers/prodmix.js"></script>
 
+<!-- Modules -->
 <script src="modules/dashboard/dashboard.js"></script>
 <script src="modules/forecast/forecast.js"></script>
 <script src="modules/menu/menu.js"></script>
 <script src="modules/upload/upload.js"></script>
 
 <script>
-    // Запуск всех модулей после загрузки
     document.addEventListener("DOMContentLoaded", () => {
-        if (window.Dashboard) Dashboard.init();
-        if (window.Forecast)  Forecast.init();
-        if (window.Menu)      Menu.init();
-        if (window.Upload)    Upload.init();
+        console.log("🚀 MG Analytics запущен");
+
+        if (typeof Dashboard !== "undefined") Dashboard.init();
+        if (typeof Forecast  !== "undefined") Forecast.init();
+        if (typeof Menu      !== "undefined") Menu.init();
+        if (typeof Upload    !== "undefined") Upload.init();
     });
 </script>
 </body>
