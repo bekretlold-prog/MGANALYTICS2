@@ -1,10 +1,18 @@
 // ============================================================
 //  modules/dashboard/dashboard.js
+//  Показывает последний доступный день, не обязательно "сегодня"
 // ============================================================
 
 const Dashboard = (() => {
 
   let channelChart = null, trendChart = null;
+
+  function sumByDate(sales, date) {
+    return sales.filter(r => r.date === date).reduce((a, b) => a + b.sum, 0);
+  }
+  function checksByDate(sales, date) {
+    return sales.filter(r => r.date === date).reduce((a, b) => a + b.checks, 0);
+  }
 
   async function render() {
     Utils.showLoader("Загружаем дашборд...");
@@ -13,137 +21,172 @@ const Dashboard = (() => {
     Utils.hideLoader();
 
     if (!sales.length) {
-      document.getElementById("dash-content").innerHTML = '<p class="muted center" style="padding:60px">Загрузи отчёты во вкладке «Загрузка» чтобы увидеть дашборд</p>';
+      document.getElementById("dash-content").innerHTML =
+        '<p class="muted center" style="padding:60px 20px">Загрузи отчёты во вкладке «Загрузка» чтобы увидеть дашборд</p>';
       return;
     }
 
-    const today = Utils.formatDate(new Date());
-    const yesterday = Utils.formatDate(Utils.daysAgo(1));
+    // Берём последний доступный день и предыдущий
+    const allDates = [...new Set(sales.map(r => r.date))].sort();
+    const lastDate = allDates[allDates.length - 1];
+    const prevDate = allDates.length > 1 ? allDates[allDates.length - 2] : null;
 
-    // Агрегаты
-    function sumBy(date, channel) {
-      return sales.filter(r => r.date === date && (channel ? r.channel === channel : r.channel !== "total")).reduce((a, b) => a + b.sum, 0);
+    const lastSum  = sumByDate(sales, lastDate);
+    const prevSum  = prevDate ? sumByDate(sales, prevDate) : 0;
+    const lastChks = checksByDate(sales, lastDate);
+    const prevChks = prevDate ? checksByDate(sales, prevDate) : 0;
+    const lastAvg  = lastChks  ? lastSum  / lastChks  : 0;
+    const prevAvg  = prevChks  ? prevSum  / prevChks  : 0;
+
+    // Тот же день недели неделю назад
+    const lastDateObj = Utils.parseDate(lastDate);
+    const sameWD = allDates
+      .filter(d => {
+        const obj = Utils.parseDate(d);
+        return obj.getDay() === lastDateObj.getDay() && d !== lastDate;
+      })
+      .sort();
+    const sameDayLast = sameWD.length ? sameWD[sameWD.length - 1] : null;
+    const sameDaySum  = sameDayLast ? sumByDate(sales, sameDayLast) : 0;
+
+    // Период всех данных
+    const firstDate = allDates[0];
+    const totalSum  = sales.reduce((a, b) => a + b.sum, 0);
+    const totalChks = sales.reduce((a, b) => a + b.checks, 0);
+    const avgCheck  = totalChks ? totalSum / totalChks : 0;
+
+    function delta(cur, prev) {
+      if (!prev) return "";
+      const d = ((cur - prev) / prev * 100).toFixed(1);
+      return `${parseFloat(d) >= 0 ? "▲" : "▼"} ${Math.abs(d)}%`;
     }
-    function checksBy(date) {
-      return sales.filter(r => r.date === date && r.channel !== "total").reduce((a, b) => a + b.checks, 0);
+    function deltaClass(cur, prev) {
+      if (!prev) return "";
+      return cur >= prev ? "pos" : "neg";
     }
 
-    const todaySum  = sumBy(today);
-    const yestSum   = sumBy(yesterday);
-    const todayChks = checksBy(today);
-    const yestChks  = checksBy(yesterday);
-
-    const todayAvg = todayChks  ? todaySum  / todayChks  : 0;
-    const yestAvg  = yestChks   ? yestSum   / yestChks   : 0;
-
-    // Сравнение с той же неделей прошлого года
-    const todayDate = Utils.parseDate(today);
-    const lyDate = new Date(todayDate); lyDate.setFullYear(lyDate.getFullYear() - 1);
-    // Ищем тот же день недели в ±3 дня
-    let lySum = 0;
-    for (let offset = 0; offset <= 3; offset++) {
-      for (const sign of [0, 1, -1]) {
-        const d = new Date(lyDate); d.setDate(lyDate.getDate() + offset * sign);
-        if (d.getDay() === todayDate.getDay()) {
-          const s = sumBy(Utils.formatDate(d));
-          if (s > 0) { lySum = s; break; }
-        }
-      }
-      if (lySum) break;
-    }
-
-    const vsLY = lySum ? ((todaySum - lySum) / lySum * 100).toFixed(1) : null;
-
-    // Каналы сегодня
-    const alfaSum  = sumBy(today, "alfa");
-    const kioskSum = sumBy(today, "kiosk");
-    const cashSum  = sumBy(today, "cash");
-
-    // KPI блок
     document.getElementById("dash-kpi").innerHTML = `
       <div class="kpi-card">
-        <div class="kpi-label">Выручка сегодня</div>
-        <div class="kpi-value">${Utils.money(todaySum)}</div>
-        <div class="kpi-delta ${yestSum && todaySum >= yestSum ? "pos" : "neg"}">
-          ${yestSum ? (todaySum >= yestSum ? "▲" : "▼") + " " + Math.abs(((todaySum - yestSum) / yestSum * 100)).toFixed(1) + "% vs вчера" : "нет данных вчера"}
+        <div class="kpi-label">Последний день</div>
+        <div class="kpi-value" style="font-size:18px">${lastDate} (${Utils.dayName(lastDateObj)})</div>
+        <div class="kpi-delta muted">данные за ${allDates.length} дней: ${firstDate} → ${lastDate}</div>
+      </div>
+      <div class="kpi-card">
+        <div class="kpi-label">Выручка ${lastDate}</div>
+        <div class="kpi-value">${Utils.money(lastSum)}</div>
+        <div class="kpi-delta ${deltaClass(lastSum, prevSum)}">
+          ${prevDate ? delta(lastSum, prevSum) + " vs " + prevDate : "нет предыдущего дня"}
         </div>
       </div>
       <div class="kpi-card">
-        <div class="kpi-label">Чеков сегодня</div>
-        <div class="kpi-value">${Utils.num(todayChks)}</div>
-        <div class="kpi-delta ${yestChks && todayChks >= yestChks ? "pos" : "neg"}">
-          ${yestChks ? (todayChks >= yestChks ? "▲" : "▼") + " vs вчера " + Utils.num(yestChks) : "нет данных вчера"}
+        <div class="kpi-label">Чеков ${lastDate}</div>
+        <div class="kpi-value">${Utils.num(lastChks)}</div>
+        <div class="kpi-delta ${deltaClass(lastChks, prevChks)}">
+          ${prevDate ? delta(lastChks, prevChks) + " vs " + prevDate : ""}
         </div>
       </div>
       <div class="kpi-card">
-        <div class="kpi-label">Средний чек</div>
-        <div class="kpi-value">${Utils.money(todayAvg)}</div>
-        <div class="kpi-delta ${yestAvg && todayAvg >= yestAvg ? "pos" : "neg"}">
-          ${yestAvg ? (todayAvg >= yestAvg ? "▲" : "▼") + " vs вчера " + Utils.money(yestAvg) : "нет данных вчера"}
+        <div class="kpi-label">Средний чек ${lastDate}</div>
+        <div class="kpi-value">${Utils.money(lastAvg)}</div>
+        <div class="kpi-delta ${deltaClass(lastAvg, prevAvg)}">
+          ${prevAvg ? delta(lastAvg, prevAvg) + " vs " + prevDate : ""}
         </div>
       </div>
       <div class="kpi-card">
-        <div class="kpi-label">vs прошлый год</div>
-        <div class="kpi-value ${vsLY !== null ? (parseFloat(vsLY) >= 0 ? "pos" : "neg") : ""}">${vsLY !== null ? (parseFloat(vsLY) >= 0 ? "+" : "") + vsLY + "%" : "нет данных"}</div>
-        <div class="kpi-delta muted">${lySum ? "база: " + Utils.money(lySum) : "загрузи данные прошлого года"}</div>
+        <div class="kpi-label">Выручка за период</div>
+        <div class="kpi-value">${Utils.money(totalSum)}</div>
+        <div class="kpi-delta muted">${allDates.length} дней</div>
+      </div>
+      <div class="kpi-card">
+        <div class="kpi-label">Средний чек (период)</div>
+        <div class="kpi-value">${Utils.money(avgCheck)}</div>
+        <div class="kpi-delta muted">${Utils.num(totalChks)} чеков всего</div>
       </div>
     `;
 
-    // Тренд последних 14 дней
-    const dates14 = [];
-    for (let i = 13; i >= 0; i--) dates14.push(Utils.formatDate(Utils.daysAgo(i)));
-    const trend14 = dates14.map(d => sumBy(d));
+    // Тренд — все доступные дни
+    const trendDates = allDates.slice(-14); // последние 14 дней из данных
+    const trendData  = trendDates.map(d => sumByDate(sales, d));
 
     if (trendChart) trendChart.destroy();
     trendChart = new Chart(document.getElementById("trend-chart").getContext("2d"), {
-      type: "line",
+      type: "bar",
       data: {
-        labels: dates14.map(d => d.slice(5)),
-        datasets: [{ label: "Выручка", data: trend14, borderColor: "#3b82f6", backgroundColor: "rgba(59,130,246,0.1)", tension: 0.3, fill: true, pointRadius: 3 }],
+        labels: trendDates.map(d => d.slice(5) + " " + Utils.dayName(Utils.parseDate(d))),
+        datasets: [{
+          label: "Выручка",
+          data: trendData,
+          backgroundColor: trendDates.map(d => d === lastDate ? "rgba(88,166,255,0.9)" : "rgba(88,166,255,0.4)"),
+          borderRadius: 6,
+        }],
       },
-      options: { responsive: true, plugins: { legend: { display: false } } },
+      options: {
+        responsive: true,
+        plugins: { legend: { display: false } },
+        scales: { y: { ticks: { callback: v => Utils.money(v).replace(" ₽","") + "₽" } } },
+      },
     });
 
-    // Каналы
+    // По дням недели — средняя выручка
+    const byWD = [0,1,2,3,4,5,6].map(wd => {
+      const days = allDates.filter(d => Utils.parseDate(d).getDay() === wd);
+      return days.length ? days.reduce((a, d) => a + sumByDate(sales, d), 0) / days.length : 0;
+    });
+    const WD_NAMES = ["Вс","Пн","Вт","Ср","Чт","Пт","Сб"];
+
     if (channelChart) channelChart.destroy();
     channelChart = new Chart(document.getElementById("channel-chart").getContext("2d"), {
-      type: "doughnut",
+      type: "bar",
       data: {
-        labels: ["Альфа Банк", "Киоск", "Наличные"],
-        datasets: [{ data: [alfaSum, kioskSum, cashSum], backgroundColor: ["#3b82f6", "#10b981", "#f59e0b"], borderWidth: 0 }],
+        labels: WD_NAMES,
+        datasets: [{
+          label: "Средняя выручка",
+          data: byWD,
+          backgroundColor: byWD.map((_, i) => i === 0 || i === 6 ? "rgba(245,158,11,0.7)" : "rgba(16,185,129,0.7)"),
+          borderRadius: 6,
+        }],
       },
-      options: { responsive: true, plugins: { legend: { position: "right" } } },
+      options: {
+        responsive: true,
+        plugins: { legend: { display: false } },
+        scales: { y: { ticks: { callback: v => Utils.money(v).replace(" ₽","") + "₽" } } },
+      },
     });
 
-    // Топ-5 блюд сегодня
-    const todayDishes = menu.filter(r => r.date === today);
-    const topDishes = todayDishes.sort((a, b) => b.sum - a.sum).slice(0, 5);
+    // Топ блюд за весь период
+    const menuByDish = {};
+    for (const r of menu) {
+      if (!menuByDish[r.dish]) menuByDish[r.dish] = { dish: r.dish, qty: 0, sum: 0 };
+      menuByDish[r.dish].qty += r.qty;
+      menuByDish[r.dish].sum += r.sum;
+    }
+    const topDishes = Object.values(menuByDish).sort((a,b) => b.sum - a.sum).slice(0, 5);
+
     document.getElementById("top-dishes").innerHTML = topDishes.length
       ? topDishes.map((d, i) => `
           <div class="top-row">
-            <span class="top-num">${i + 1}</span>
+            <span class="top-num">${i+1}</span>
             <span class="top-name">${d.dish}</span>
             <span class="top-qty">${d.qty} шт</span>
             <span class="top-sum">${Utils.money(d.sum)}</span>
           </div>`).join("")
-      : '<p class="muted">Нет данных меню за сегодня</p>';
+      : '<p class="muted">Загрузи Prod Mix отчёт</p>';
 
     // Алерты
     const alerts = [];
-    if (todaySum > 0 && yestSum > 0 && todaySum < yestSum * 0.7)
-      alerts.push({ type: "warn", text: `Выручка на ${Math.round((1 - todaySum/yestSum)*100)}% ниже вчера` });
-    if (kioskSum > 0 && (alfaSum + cashSum) > 0 && kioskSum / (alfaSum + cashSum + kioskSum) > 0.6)
-      alerts.push({ type: "info", text: `Киоск даёт ${Math.round(kioskSum/(alfaSum+cashSum+kioskSum)*100)}% выручки сегодня` });
+    if (sameDayLast && lastSum < sameDaySum * 0.8)
+      alerts.push({ type: "warn", text: `Выручка ${lastDate} на ${Math.round((1-lastSum/sameDaySum)*100)}% ниже прошлого ${Utils.dayName(lastDateObj)} (${sameDayLast})` });
+    if (sameDayLast && lastSum > sameDaySum * 1.2)
+      alerts.push({ type: "ok", text: `Выручка ${lastDate} на ${Math.round((lastSum/sameDaySum-1)*100)}% выше прошлого ${Utils.dayName(lastDateObj)} (${sameDayLast})` });
+    if (lastChks > 0 && lastAvg < avgCheck * 0.85)
+      alerts.push({ type: "warn", text: `Средний чек ${lastDate} (${Utils.money(lastAvg)}) ниже среднего по периоду (${Utils.money(avgCheck)})` });
 
     document.getElementById("dash-alerts").innerHTML = alerts.length
       ? alerts.map(a => `<div class="alert alert-${a.type}">${a.text}</div>`).join("")
-      : '<div class="alert alert-ok">✓ Всё в норме</div>';
+      : `<div class="alert alert-ok">✓ Всё в норме за ${lastDate}</div>`;
   }
 
-  function init() {
-    render();
-  }
-
+  function init() { render(); }
   return { init };
 })();
 

@@ -1,59 +1,33 @@
 // ============================================================
 //  modules/forecast/forecast.js
-//  Прогноз с учётом дня недели + тренд + персонал
+//  Прогноз — работает без данных прошлого года
+//  База: похожие дни недели из доступных данных + тренд
 // ============================================================
 
 const Forecast = (() => {
 
-  // Собирает все записи по каналам в итого по дате+часу
+  // Группируем записи по дате+час → итого
   function aggregateSales(records) {
     const map = new Map();
     for (const r of records) {
-      if (r.channel === "total") continue;
       const key = `${r.date}|${r.hour}`;
-      if (!map.has(key)) map.set(key, { date: r.date, hour: r.hour, sum: 0, checks: 0, alfa: 0, kiosk: 0, cash: 0 });
-      const entry = map.get(key);
-      entry.sum    += r.sum;
-      entry.checks += r.checks;
-      entry[r.channel] = (entry[r.channel] || 0) + r.sum;
+      if (!map.has(key)) map.set(key, { date: r.date, hour: r.hour, sum: 0, checks: 0 });
+      const e = map.get(key);
+      e.sum    += r.sum;
+      e.checks += r.checks;
     }
     return Array.from(map.values());
   }
 
-  // Считает тренд по каждому часу отдельно (последние 4 недели vs год назад)
-  function computeHourlyTrend(agg, hours, targetDate) {
-    const trends = {};
-    const today = new Date();
-
-    for (const h of hours) {
-      // Последние 4 недели того же дня недели
-      const recentVals = [];
-      for (let w = 1; w <= 4; w++) {
-        const d = Utils.daysAgo(w * 7, today);
-        if (d.getDay() !== targetDate.getDay()) continue;
-        const key = `${Utils.formatDate(d)}|${h}`;
-        const rec = agg.find(r => `${r.date}|${r.hour}` == key); // loose compare hour
-        if (rec) recentVals.push(rec.sum);
-      }
-
-      // Год назад ±2 недели того же дня недели
-      const lastYear = new Date(targetDate);
-      lastYear.setFullYear(lastYear.getFullYear() - 1);
-      const lastYearVals = [];
-      for (let offset = -14; offset <= 14; offset++) {
-        const d = new Date(lastYear);
-        d.setDate(lastYear.getDate() + offset);
-        if (d.getDay() !== targetDate.getDay()) continue;
-        const dStr = Utils.formatDate(d);
-        const rec = agg.find(r => r.date === dStr && r.hour == h);
-        if (rec) lastYearVals.push(rec.sum);
-      }
-
-      const avgRecent   = recentVals.length   ? recentVals.reduce((a, b) => a + b, 0)   / recentVals.length   : null;
-      const avgLastYear = lastYearVals.length  ? lastYearVals.reduce((a, b) => a + b, 0) / lastYearVals.length : null;
-      trends[h] = (avgRecent && avgLastYear && avgLastYear > 0) ? avgRecent / avgLastYear : 1;
-    }
-    return trends;
+  // Все доступные даты того же дня недели что и targetDate, исключая саму targetDate
+  function sameDayDates(allDates, targetDate) {
+    const wd = targetDate.getDay();
+    return allDates
+      .filter(d => {
+        const obj = Utils.parseDate(d);
+        return obj.getDay() === wd && d !== Utils.formatDate(targetDate);
+      })
+      .sort();
   }
 
   async function compute(targetDateStr) {
@@ -62,57 +36,65 @@ const Forecast = (() => {
 
     const agg = aggregateSales(raw);
     const targetDate = Utils.parseDate(targetDateStr);
-    const targetWD = targetDate.getDay();
+    const allDates = [...new Set(agg.map(r => r.date))].sort();
     const hours = [...new Set(agg.map(r => r.hour))].sort((a, b) => a - b);
 
-    const hourlyTrends = computeHourlyTrend(agg, hours, targetDate);
+    // Найти похожие дни недели (максимум 8)
+    const similarDates = sameDayDates(allDates, targetDate).slice(-8);
 
-    // База: данные прошлого года того же дня недели
-    const lastYear = new Date(targetDate);
-    lastYear.setFullYear(lastYear.getFullYear() - 1);
-
-    // Ищем базу — сначала точную дату, потом ближайший такой же день недели в ±21 день
-    function findBase(hour) {
-      // Точная дата год назад
-      const exact = agg.find(r => r.date === Utils.formatDate(lastYear) && r.hour == hour);
-      if (exact) return exact;
-
-      // Ближайший тот же день недели в прошлом году
-      for (let offset = 1; offset <= 21; offset++) {
-        for (const sign of [1, -1]) {
-          const d = new Date(lastYear);
-          d.setDate(lastYear.getDate() + offset * sign);
-          if (d.getDay() !== targetWD) continue;
-          const rec = agg.find(r => r.date === Utils.formatDate(d) && r.hour == hour);
-          if (rec) return rec;
-        }
-      }
-
-      // Fallback: последние 4 недели того же дня недели
-      const today = new Date();
-      const fallbackVals = [];
-      for (let w = 1; w <= 8; w++) {
-        const d = Utils.daysAgo(w * 7, today);
-        if (d.getDay() !== targetWD) continue;
-        const rec = agg.find(r => r.date === Utils.formatDate(d) && r.hour == hour);
-        if (rec) fallbackVals.push(rec);
-      }
-      if (fallbackVals.length) {
-        const avgSum    = fallbackVals.reduce((a, b) => a + b.sum, 0)    / fallbackVals.length;
-        const avgChecks = fallbackVals.reduce((a, b) => a + b.checks, 0) / fallbackVals.length;
-        return { sum: avgSum, checks: avgChecks, isFallback: true };
-      }
-      return null;
+    if (!similarDates.length && !allDates.includes(targetDateStr)) {
+      return null; // совсем нет данных
     }
 
+    // Для каждого часа считаем базу и тренд
     const hourly = [];
     let totalSum = 0, totalChecks = 0;
 
     for (const h of hours) {
-      const base = findBase(h);
-      const trend = hourlyTrends[h] || 1;
-      const forecastSum    = base ? Math.round(base.sum    * trend) : 0;
-      const forecastChecks = base ? Math.round(base.checks * trend) : 0;
+      // Данные по похожим дням для этого часа
+      const similar = similarDates
+        .map(d => agg.find(r => r.date === d && r.hour === h))
+        .filter(Boolean);
+
+      // Если есть данные за targetDate — это факт, не прогноз
+      const actual = agg.find(r => r.date === targetDateStr && r.hour === h);
+
+      let forecastSum = 0, forecastChecks = 0;
+      let trendLabel = "—";
+
+      if (similar.length >= 2) {
+        // Делим похожие дни на "старые" и "новые" для тренда
+        const half = Math.ceil(similar.length / 2);
+        const older = similar.slice(0, half);
+        const newer = similar.slice(half);
+
+        const avgOlder = older.reduce((a, b) => a + b.sum, 0) / older.length;
+        const avgNewer = newer.reduce((a, b) => a + b.sum, 0) / newer.length;
+        const trend = avgOlder > 0 ? avgNewer / avgOlder : 1;
+
+        // База — среднее по последним 2-4 похожим дням с тренд-поправкой
+        const base = similar.slice(-4);
+        const baseAvgSum    = base.reduce((a, b) => a + b.sum, 0)    / base.length;
+        const baseAvgChecks = base.reduce((a, b) => a + b.checks, 0) / base.length;
+
+        forecastSum    = Math.round(baseAvgSum * (trend > 0.5 && trend < 2 ? trend : 1));
+        forecastChecks = Math.round(baseAvgChecks);
+        trendLabel = `×${trend.toFixed(2)}`;
+
+      } else if (similar.length === 1) {
+        forecastSum    = similar[0].sum;
+        forecastChecks = similar[0].checks;
+        trendLabel = "1 день";
+      } else {
+        // Нет похожих дней — берём среднее по всем дням для этого часа
+        const allForHour = agg.filter(r => r.hour === h && r.date !== targetDateStr);
+        if (allForHour.length) {
+          forecastSum    = Math.round(allForHour.reduce((a, b) => a + b.sum, 0)    / allForHour.length);
+          forecastChecks = Math.round(allForHour.reduce((a, b) => a + b.checks, 0) / allForHour.length);
+          trendLabel = "~средн.";
+        }
+      }
+
       const staff = forecastChecks > 0 ? Math.ceil(forecastChecks / CONFIG.STAFF_NORM) : 0;
 
       hourly.push({
@@ -120,13 +102,18 @@ const Forecast = (() => {
         sum: forecastSum,
         checks: forecastChecks,
         staff,
-        trend: trend.toFixed(2),
-        isFallback: base?.isFallback || false,
+        trendLabel,
+        actualSum:    actual?.sum    || 0,
+        actualChecks: actual?.checks || 0,
+        hasActual: !!actual,
       });
 
       totalSum    += forecastSum;
       totalChecks += forecastChecks;
     }
+
+    // Определяем пиковый час
+    const peak = [...hourly].sort((a, b) => b.sum - a.sum)[0];
 
     return {
       date: targetDateStr,
@@ -134,82 +121,66 @@ const Forecast = (() => {
       hourly,
       totalSum,
       totalChecks,
-      totalStaff: Math.ceil(totalChecks / hours.length / CONFIG.STAFF_NORM),
+      peak,
+      basedOn: similarDates.slice(-4),
+      hasActual: allDates.includes(targetDateStr),
     };
   }
 
-  async function getActual(dateStr) {
-    const raw = await DB.getSales();
-    const agg = aggregateSales(raw.filter(r => r.date === dateStr));
-    if (!agg.length) return null;
-    return {
-      date: dateStr,
-      hourly: agg,
-      totalSum: agg.reduce((a, b) => a + b.sum, 0),
-      totalChecks: agg.reduce((a, b) => a + b.checks, 0),
-    };
-  }
-
-  let compChart = null, hourlyChart = null;
+  let compChart = null, staffChart = null;
 
   async function render() {
-    const picker = document.getElementById("forecast-date");
-    const dateStr = picker.value;
+    const dateStr = document.getElementById("forecast-date").value;
     if (!dateStr) return;
 
     Utils.showLoader("Считаем прогноз...");
-
-    const forecast = await compute(dateStr);
-    const actual   = await getActual(dateStr);
-
+    const result = await compute(dateStr);
     Utils.hideLoader();
 
-    if (!forecast) { Utils.toast("Недостаточно данных для прогноза", "error"); return; }
+    if (!result) {
+      Utils.toast("Недостаточно данных. Загрузи отчёты во вкладке «Загрузка»", "error");
+      return;
+    }
 
-    // KPI карточки
-    const actualSum = actual?.totalSum || 0;
-    const diff = actualSum - forecast.totalSum;
-    const diffPct = forecast.totalSum ? ((diff / forecast.totalSum) * 100).toFixed(1) : 0;
+    // Актуальная выручка (если есть)
+    const actualTotal = result.hourly.reduce((a, b) => a + b.actualSum, 0);
+    const diff = result.hasActual ? actualTotal - result.totalSum : null;
+    const diffPct = diff !== null && result.totalSum ? ((diff / result.totalSum) * 100).toFixed(1) : null;
 
-    document.getElementById("fc-date").textContent    = `${dateStr} (${forecast.dayName})`;
-    document.getElementById("fc-forecast").textContent = Utils.money(forecast.totalSum);
-    document.getElementById("fc-actual").textContent   = Utils.money(actualSum);
-    document.getElementById("fc-diff").textContent     = (diff >= 0 ? "+" : "") + diffPct + "%";
-    document.getElementById("fc-diff").style.color     = diff >= 0 ? "var(--success)" : "var(--danger)";
-    document.getElementById("fc-checks").textContent   = Utils.num(forecast.totalChecks);
-
-    // Пиковый час
-    const peak = [...forecast.hourly].sort((a, b) => b.sum - a.sum)[0];
-    document.getElementById("fc-peak").textContent = peak ? `${peak.hour}:00 (${Utils.money(peak.sum)})` : "—";
+    document.getElementById("fc-date").textContent     = `${dateStr} (${result.dayName})`;
+    document.getElementById("fc-forecast").textContent = Utils.money(result.totalSum);
+    document.getElementById("fc-actual").textContent   = result.hasActual ? Utils.money(actualTotal) : "нет данных";
+    document.getElementById("fc-diff").textContent     = diffPct !== null ? (parseFloat(diffPct) >= 0 ? "+" : "") + diffPct + "%" : "—";
+    document.getElementById("fc-diff").className       = diffPct !== null ? (parseFloat(diffPct) >= 0 ? "sum-value pos" : "sum-value neg") : "sum-value";
+    document.getElementById("fc-checks").textContent   = Utils.num(result.totalChecks);
+    document.getElementById("fc-peak").textContent     = result.peak ? `${result.peak.hour}:00 (${Utils.money(result.peak.sum)})` : "—";
+    document.getElementById("fc-based").textContent    = result.basedOn.length ? result.basedOn.join(", ") : "среднее по всем дням";
 
     // Таблица
     const tbody = document.querySelector("#fc-table tbody");
     tbody.innerHTML = "";
-    for (const h of forecast.hourly) {
-      const act = actual?.hourly.find(r => r.hour == h.hour);
-      const actSum    = act?.sum    || 0;
-      const actChecks = act?.checks || 0;
-      const d = actSum - h.sum;
-      const dPct = h.sum ? ((d / h.sum) * 100).toFixed(1) : 0;
-
+    for (const h of result.hourly) {
+      if (h.sum === 0 && !h.hasActual) continue; // пропускаем пустые часы
+      const d = h.hasActual ? h.actualSum - h.sum : null;
+      const dPct = d !== null && h.sum ? ((d / h.sum) * 100).toFixed(1) : null;
       const tr = tbody.insertRow();
       tr.innerHTML = `
         <td>${h.hour}:00</td>
         <td>${Utils.money(h.sum)}</td>
-        <td>${h.checks}</td>
-        <td>${h.staff} чел.</td>
-        <td>${actSum ? Utils.money(actSum) : "—"}</td>
-        <td>${actChecks || "—"}</td>
-        <td class="${d >= 0 ? "pos" : "neg"}">${actSum ? (d >= 0 ? "+" : "") + dPct + "%" : "—"}</td>
-        <td class="muted">${h.isFallback ? "~" : "×" + h.trend}</td>
+        <td>${h.checks || "—"}</td>
+        <td>${h.staff > 0 ? h.staff + " чел." : "—"}</td>
+        <td>${h.hasActual ? Utils.money(h.actualSum) : "—"}</td>
+        <td>${h.hasActual ? (h.actualChecks || "—") : "—"}</td>
+        <td class="${dPct !== null ? (parseFloat(dPct) >= 0 ? "pos" : "neg") : ""}">${dPct !== null ? (parseFloat(dPct) >= 0 ? "+" : "") + dPct + "%" : "—"}</td>
+        <td class="muted">${h.trendLabel}</td>
       `;
     }
 
     // Графики
-    const labels = forecast.hourly.map(h => `${h.hour}:00`);
-    const fcData  = forecast.hourly.map(h => h.sum);
-    const actData = forecast.hourly.map(h => actual?.hourly.find(r => r.hour == h.hour)?.sum || 0);
-    const staffData = forecast.hourly.map(h => h.staff);
+    const labels     = result.hourly.filter(h => h.sum > 0 || h.hasActual).map(h => `${h.hour}:00`);
+    const fcData     = result.hourly.filter(h => h.sum > 0 || h.hasActual).map(h => h.sum);
+    const actData    = result.hourly.filter(h => h.sum > 0 || h.hasActual).map(h => h.actualSum);
+    const staffData  = result.hourly.filter(h => h.sum > 0 || h.hasActual).map(h => h.staff);
 
     if (compChart) compChart.destroy();
     compChart = new Chart(document.getElementById("fc-chart").getContext("2d"), {
@@ -217,27 +188,45 @@ const Forecast = (() => {
       data: {
         labels,
         datasets: [
-          { label: "Прогноз", data: fcData, backgroundColor: "rgba(59,130,246,0.7)", borderRadius: 6 },
-          { label: "Факт",    data: actData, backgroundColor: "rgba(16,185,129,0.7)", borderRadius: 6 },
+          { label: "Прогноз", data: fcData,  backgroundColor: "rgba(88,166,255,0.7)", borderRadius: 4 },
+          { label: "Факт",    data: actData, backgroundColor: "rgba(63,185,80,0.7)",  borderRadius: 4 },
         ],
       },
       options: { responsive: true, plugins: { legend: { position: "top" } } },
     });
 
-    if (hourlyChart) hourlyChart.destroy();
-    hourlyChart = new Chart(document.getElementById("staff-chart").getContext("2d"), {
+    if (staffChart) staffChart.destroy();
+    staffChart = new Chart(document.getElementById("staff-chart").getContext("2d"), {
       type: "line",
       data: {
         labels,
-        datasets: [{ label: "Нужно сотрудников", data: staffData, borderColor: "#f59e0b", backgroundColor: "rgba(245,158,11,0.15)", tension: 0.3, fill: true, pointRadius: 4 }],
+        datasets: [{
+          label: "Нужно сотрудников",
+          data: staffData,
+          borderColor: "#f59e0b",
+          backgroundColor: "rgba(245,158,11,0.15)",
+          tension: 0.3,
+          fill: true,
+          pointRadius: 4,
+        }],
       },
-      options: { responsive: true, scales: { y: { min: 0, ticks: { stepSize: 1 } } } },
+      options: {
+        responsive: true,
+        scales: { y: { min: 0, ticks: { stepSize: 1 } } },
+      },
     });
   }
 
-  function init() {
+  async function init() {
+    // Устанавливаем последнюю доступную дату по умолчанию
+    const sales = await DB.getSales();
+    const dates = [...new Set(sales.map(r => r.date))].sort();
     const picker = document.getElementById("forecast-date");
-    picker.value = Utils.formatDate(new Date());
+    if (dates.length) {
+      picker.value = dates[dates.length - 1];
+    } else {
+      picker.value = Utils.formatDate(new Date());
+    }
     document.getElementById("btn-forecast").addEventListener("click", render);
     render();
   }
