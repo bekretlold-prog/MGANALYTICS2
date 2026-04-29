@@ -1,15 +1,18 @@
 // ============================================================
-// core/db.js — Локальное хранилище (localStorage)
-// Работает как точная замена npoint.io, без внешних запросов
+// core/db.js — локальное хранилище (localStorage)
+// Теперь поддерживает:
+//   - sales (продажи по позициям из Prod_Mix)
+//   - menu (меню)
+//   - hourly (почасовые данные: дата, час, сумма, чеки)
 // ============================================================
 
 const DB = (() => {
     const STORAGE_KEYS = {
         SALES: 'mganalytics_sales',
-        MENU: 'mganalytics_menu'
+        MENU: 'mganalytics_menu',
+        HOURLY: 'mganalytics_hourly'   // новая коллекция
     };
 
-    // Вспомогательная функция для загрузки данных из localStorage
     function _loadFromStorage(key, defaultValue = []) {
         const data = localStorage.getItem(key);
         if (!data) return defaultValue;
@@ -21,69 +24,77 @@ const DB = (() => {
         }
     }
 
-    // Вспомогательная функция для сохранения в localStorage
     function _saveToStorage(key, data) {
         localStorage.setItem(key, JSON.stringify(data));
         return data;
     }
 
-    // ---------- SALES (продажи) ----------
-    // Получить все записи продаж
+    // ---------- SALES (продажи по позициям) ----------
     async function getSales() {
         return _loadFromStorage(STORAGE_KEYS.SALES);
     }
 
-    // Добавить новые записи продаж с дедупликацией
     async function addSales(records) {
         const all = await getSales();
-        const key = r => `${r.date}|${r.hour}|${r.channel}`; // Увеличил уникальность
+        const key = r => `${r.date}|${r.hour}|${r.channel}`;
         const existing = new Set(all.map(key));
         const fresh = records.filter(r => !existing.has(key(r)));
-        
         if (!fresh.length) return 0;
-        
         const merged = [...all, ...fresh];
         _saveToStorage(STORAGE_KEYS.SALES, merged);
         return fresh.length;
     }
 
-    // Очистить все данные продаж
     async function clearSales() {
         _saveToStorage(STORAGE_KEYS.SALES, []);
     }
 
-    // ---------- MENU (меню) ----------
-    // Получить все записи меню
+    // ---------- MENU ----------
     async function getMenu() {
         return _loadFromStorage(STORAGE_KEYS.MENU);
     }
 
-    // Добавить новые записи меню с дедупликацией
     async function addMenu(records) {
         const all = await getMenu();
         const key = r => `${r.date}|${r.dish}`;
         const existing = new Set(all.map(key));
         const fresh = records.filter(r => !existing.has(key(r)));
-        
         if (!fresh.length) return 0;
-        
         const merged = [...all, ...fresh];
         _saveToStorage(STORAGE_KEYS.MENU, merged);
         return fresh.length;
     }
 
-    // Очистить все данные меню
     async function clearMenu() {
         _saveToStorage(STORAGE_KEYS.MENU, []);
     }
 
-    // Очистить весь кэш (просто сброс, т.к. локальный)
+    // ---------- HOURLY (почасовые данные) ----------
+    async function getHourly() {
+        return _loadFromStorage(STORAGE_KEYS.HOURLY);
+    }
+
+    async function addHourly(records) {
+        const all = await getHourly();
+        // Уникальность: дата + час
+        const key = r => `${r.date}|${r.hour}`;
+        const existing = new Set(all.map(key));
+        const fresh = records.filter(r => !existing.has(key(r)));
+        if (!fresh.length) return 0;
+        const merged = [...all, ...fresh];
+        _saveToStorage(STORAGE_KEYS.HOURLY, merged);
+        return fresh.length;
+    }
+
+    async function clearHourly() {
+        _saveToStorage(STORAGE_KEYS.HOURLY, []);
+    }
+
+    // ---------- Вспомогательные ----------
     function clearCache() {
-        // Для localStorage этот метод не нужен, но оставлен для совместимости
         console.log('Cache cleared (localStorage)');
     }
 
-    // Дополнительная функция: показать объём используемого хранилища
     function getStorageSize() {
         let total = 0;
         for (let key in localStorage) {
@@ -95,14 +106,10 @@ const DB = (() => {
     }
 
     return {
-        getSales,
-        addSales,
-        clearSales,
-        getMenu,
-        addMenu,
-        clearMenu,
-        clearCache,
-        getStorageSize
+        getSales, addSales, clearSales,
+        getMenu, addMenu, clearMenu,
+        getHourly, addHourly, clearHourly,  // новые
+        clearCache, getStorageSize
     };
 })();
 
