@@ -1,5 +1,6 @@
 // ============================================================
 //  modules/dashboard/dashboard.js
+//  Исправленная версия
 // ============================================================
 
 const Dashboard = (() => {
@@ -20,39 +21,44 @@ const Dashboard = (() => {
 
         const avgCheck = totalChecks ? Math.round(totalRevenue / totalChecks) : 0;
 
-        // Обновляем KPI
+        // Обновляем KPI на странице
         document.getElementById("total-revenue-14")?.textContent = Utils.money(totalRevenue);
         document.getElementById("total-checks")?.textContent     = Utils.num(totalChecks);
         document.getElementById("avg-check")?.textContent        = Utils.money(avgCheck);
 
         // Топ-5 блюд сегодня
         const todayStr = Utils.formatDate(new Date());
-        const todayDishes = menu.filter(m => m.date === todayStr)
-                                .sort((a, b) => b.sum - a.sum)
-                                .slice(0, 5);
+        const todayDishes = menu
+            .filter(m => m.date === todayStr)
+            .sort((a, b) => (b.sum || 0) - (a.sum || 0))
+            .slice(0, 5);
 
         const topList = document.getElementById("top-dishes");
         if (topList) {
-            topList.innerHTML = topDishes.length 
-                ? topDishes.map(d => `
+            if (todayDishes.length > 0) {
+                topList.innerHTML = todayDishes.map(d => `
                     <div class="top-row">
                         <span class="top-name">${d.dish}</span>
                         <span class="top-qty">${Utils.num(d.qty)} шт</span>
                         <span class="top-sum">${Utils.money(d.sum)}</span>
                     </div>
-                  `).join('')
-                : '<p class="muted">Нет данных за сегодня</p>';
+                `).join('');
+            } else {
+                topList.innerHTML = '<p class="muted center">Нет данных за сегодня</p>';
+            }
         }
 
         Utils.hideLoader();
     }
 
     function init() {
+        console.log("✅ Dashboard module initialized");
         render();
     }
 
     return { init, render };
+
 })();
 
-// ← Важно! Делаем глобально доступным
+// ← Это очень важно!
 window.Dashboard = Dashboard;
