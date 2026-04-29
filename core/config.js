@@ -6,8 +6,8 @@ const CONFIG = {
   // npoint.io — создай 2 bin на npoint.io с содержимым []
   // и вставь ID сюда
   NPOINT: {
-    SALES:   "8aa6299cdacaf0a0dbc5",      // данные почасового отчёта
-    MENU:    "ccb951534e5228d6f76d",         // данные Prod Mix
+    SALES:   "65a4934c718bfdb8e2c4",      // данные почасового отчёта
+    MENU:    "ab0c159462608121539c",         // данные Prod Mix
   },
 
   // Название ресторана (отображается в шапке)
