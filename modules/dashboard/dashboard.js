@@ -1,11 +1,15 @@
 // ============================================================
-//  modules/dashboard/dashboard.js
-//  Исправленная версия
+//  modules/dashboard/dashboard.js — ИСПРАВЛЕННАЯ ВЕРСИЯ
 // ============================================================
 
 const Dashboard = (() => {
 
     async function render() {
+        if (typeof Utils === "undefined" || typeof DB === "undefined") {
+            console.error("Dashboard: Utils или DB не загружены");
+            return;
+        }
+
         Utils.showLoader("Обновляем дашборд...");
 
         const hourly = await DB.getHourly();
@@ -21,12 +25,12 @@ const Dashboard = (() => {
 
         const avgCheck = totalChecks ? Math.round(totalRevenue / totalChecks) : 0;
 
-        // Обновляем KPI на странице
+        // Обновляем карточки
         document.getElementById("total-revenue-14")?.textContent = Utils.money(totalRevenue);
         document.getElementById("total-checks")?.textContent     = Utils.num(totalChecks);
         document.getElementById("avg-check")?.textContent        = Utils.money(avgCheck);
 
-        // Топ-5 блюд сегодня
+        // Топ-5 блюд
         const todayStr = Utils.formatDate(new Date());
         const todayDishes = menu
             .filter(m => m.date === todayStr)
@@ -35,17 +39,15 @@ const Dashboard = (() => {
 
         const topList = document.getElementById("top-dishes");
         if (topList) {
-            if (todayDishes.length > 0) {
-                topList.innerHTML = todayDishes.map(d => `
+            topList.innerHTML = todayDishes.length ? 
+                todayDishes.map(d => `
                     <div class="top-row">
                         <span class="top-name">${d.dish}</span>
                         <span class="top-qty">${Utils.num(d.qty)} шт</span>
                         <span class="top-sum">${Utils.money(d.sum)}</span>
                     </div>
-                `).join('');
-            } else {
-                topList.innerHTML = '<p class="muted center">Нет данных за сегодня</p>';
-            }
+                `).join('') 
+                : '<p class="muted">Нет данных за сегодня</p>';
         }
 
         Utils.hideLoader();
@@ -60,5 +62,5 @@ const Dashboard = (() => {
 
 })();
 
-// ← Это очень важно!
+// КРИТИЧНО ВАЖНАЯ СТРОКА — делаем объект глобальным
 window.Dashboard = Dashboard;
