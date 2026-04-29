@@ -1,16 +1,13 @@
 // ============================================================
 // core/db.js — локальное хранилище (localStorage)
-// Теперь поддерживает:
-//   - sales (продажи по позициям из Prod_Mix)
-//   - menu (меню)
-//   - hourly (почасовые данные: дата, час, сумма, чеки)
+// Поддерживает sales, menu, hourly
 // ============================================================
 
 const DB = (() => {
     const STORAGE_KEYS = {
         SALES: 'mganalytics_sales',
         MENU: 'mganalytics_menu',
-        HOURLY: 'mganalytics_hourly'   // новая коллекция
+        HOURLY: 'mganalytics_hourly'
     };
 
     function _loadFromStorage(key, defaultValue = []) {
@@ -29,7 +26,7 @@ const DB = (() => {
         return data;
     }
 
-    // ---------- SALES (продажи по позициям) ----------
+    // ---------- SALES ----------
     async function getSales() {
         return _loadFromStorage(STORAGE_KEYS.SALES);
     }
@@ -69,14 +66,13 @@ const DB = (() => {
         _saveToStorage(STORAGE_KEYS.MENU, []);
     }
 
-    // ---------- HOURLY (почасовые данные) ----------
+    // ---------- HOURLY ----------
     async function getHourly() {
         return _loadFromStorage(STORAGE_KEYS.HOURLY);
     }
 
     async function addHourly(records) {
         const all = await getHourly();
-        // Уникальность: дата + час
         const key = r => `${r.date}|${r.hour}`;
         const existing = new Set(all.map(key));
         const fresh = records.filter(r => !existing.has(key(r)));
@@ -108,24 +104,9 @@ const DB = (() => {
     return {
         getSales, addSales, clearSales,
         getMenu, addMenu, clearMenu,
-        getHourly, addHourly, clearHourly,  // новые
+        getHourly, addHourly, clearHourly,
         clearCache, getStorageSize
     };
 })();
-// ---------- HOURLY (почасовые данные) ----------
-async function getHourly() {
-    return _loadFromStorage('mganalytics_hourly');
-}
-
-async function addHourly(records) {
-    const all = await getHourly();
-    const key = r => `${r.date}|${r.hour}`;
-    const existing = new Set(all.map(key));
-    const fresh = records.filter(r => !existing.has(key(r)));
-    if (!fresh.length) return 0;
-    const merged = [...all, ...fresh];
-    _saveToStorage('mganalytics_hourly', merged);
-    return fresh.length;
-}
 
 window.DB = DB;
