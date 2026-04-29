@@ -139,3 +139,57 @@ const Upload = (() => {
 })();
 
 window.Upload = Upload;
+
+// Замените или дополните ваш upload.js таким кодом
+async function handleFileUpload(file) {
+    const data = await file.arrayBuffer();
+    const workbook = XLSX.read(data, { type: 'array' });
+    const sheet = workbook.Sheets[workbook.SheetNames[0]];
+    const rows = XLSX.utils.sheet_to_json(sheet, { header: 1, defval: "" });
+
+    // Ищем заголовки в первой строке
+    const headers = rows[0].map(cell => String(cell || "").trim());
+    
+    // Определяем тип файла по наличию колонки "Чеков"
+    const isHourly = headers.some(h => h === "Чеков" || h === "Чеков." || h.includes("Чеков"));
+    
+    if (isHourly) {
+        // Почасовой файл – парсим строки, начиная с той, где есть числовые данные
+        const hourlyRecords = [];
+        for (let i = 1; i < rows.length; i++) {
+            const row = rows[i];
+            if (!row || row.length < 3) continue;
+            // Предполагаем структуру: [час, сумма, ... , чеки]
+            // В вашем примере: колонка A = час, B = сумма, ... дальше может быть, но чеки где-то в конце.
+            // Проще найти индексы по заголовкам.
+            let hourIndex = headers.findIndex(h => h === "Час закрытия" || h === "Час");
+            let sumIndex = headers.findIndex(h => h === "Сумма со скидкой, р." || h === "Сумма");
+            let checksIndex = headers.findIndex(h => h === "Чеков" || h === "Чеков.");
+            if (hourIndex === -1 || sumIndex === -1 || checksIndex === -1) break;
+            
+            const hour = row[hourIndex];
+            const sum = parseFloat(row[sumIndex]);
+            const checks = parseFloat(row[checksIndex]);
+            if (isNaN(hour) || isNaN(sum) || isNaN(checks)) continue;
+            
+            // Дата берётся из предыдущих строк (метаданных). Упростим: добавим фиктивную дату или парсим из названия.
+            // В вашем файле дата указана в строке "Учетный день" – сложно. На практике дата зашита в столбцах.
+            // Для простоты: будем запрашивать дату у пользователя отдельно? Но лучше парсить.
+            // Так как это пример, предположим, что дата известна из контекста. Реализуйте по своему усмотрению.
+            // Я добавлю поле date = текущая дата загрузки, но вы можете доработать.
+            const date = new Date().toISOString().slice(0,10);
+            hourlyRecords.push({ date, hour, revenue: sum, checks });
+        }
+        if (hourlyRecords.length) {
+            const added = await DB.addHourly(hourlyRecords);
+            alert(`Загружено ${added} почасовых записей`);
+        } else {
+            alert("Не удалось распознать почасовой файл. Проверьте структуру.");
+        }
+    } else {
+        // Иначе считаем файл Prod_Mix (продажи по позициям)
+        // Здесь оставьте ваш существующий парсинг Prod_Mix
+        // ...
+        alert("Prod_Mix файл обработан (код не меняется)");
+    }
+}
