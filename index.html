@@ -69,13 +69,15 @@
       </div>
 
       <div class="card-grid">
-        <div class="sum-card"><div class="sum-label">Дата</div><div class="sum-value" id="fc-date">—</div></div>
+        <div class="sum-card"><div class="sum-label">Дата</div><div class="sum-value" id="fc-date" style="font-size:16px">—</div></div>
+        <div class="sum-card"><div class="sum-label">Тип дня</div><div class="sum-value" id="fc-daytype" style="font-size:14px">—</div></div>
         <div class="sum-card"><div class="sum-label">Прогноз выручки</div><div class="sum-value" id="fc-forecast">—</div></div>
         <div class="sum-card"><div class="sum-label">Факт выручки</div><div class="sum-value" id="fc-actual">—</div></div>
         <div class="sum-card"><div class="sum-label">Отклонение</div><div class="sum-value" id="fc-diff">—</div></div>
         <div class="sum-card"><div class="sum-label">Прогноз чеков</div><div class="sum-value" id="fc-checks">—</div></div>
         <div class="sum-card"><div class="sum-label">Пиковый час</div><div class="sum-value" id="fc-peak">—</div></div>
-        <div class="sum-card" style="grid-column:1/-1"><div class="sum-label">База прогноза (похожие дни)</div><div class="sum-value" id="fc-based" style="font-size:14px;font-weight:400">—</div></div>
+        <div class="sum-card"><div class="sum-label">Тренд коэффициент</div><div class="sum-value" id="fc-trend">—</div></div>
+        <div class="sum-card" style="grid-column:1/-1"><div class="sum-label">База прогноза (использованные дни того же типа)</div><div class="sum-value" id="fc-based" style="font-size:12px;font-weight:400;line-height:1.6">—</div></div>
       </div>
 
       <div class="charts-row">
@@ -206,6 +208,7 @@
 
 <!-- Scripts: порядок важен! -->
 <script src="core/config.js"></script>
+  <script src="core/calendar.js"></script>
 <script src="core/utils.js"></script>
 <script src="core/db.js"></script>
 <script src="modules/upload/parsers/hourly.js"></script>
