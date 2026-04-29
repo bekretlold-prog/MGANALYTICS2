@@ -238,8 +238,11 @@
       });
     });
 
-    // Инициализация дашборда
-    Dashboard.init();
+    // Предзагружаем данные ОДИН РАЗ при старте — модули берут из кэша
+    Utils.showLoader("Загружаем данные...");
+    Promise.all([DB.getSales(), DB.getMenu()])
+      .catch(() => {})
+      .finally(() => { Utils.hideLoader(); Dashboard.init(); });
   });
 </script>
 </body>
