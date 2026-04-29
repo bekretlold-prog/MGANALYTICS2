@@ -112,5 +112,20 @@ const DB = (() => {
         clearCache, getStorageSize
     };
 })();
+// ---------- HOURLY (почасовые данные) ----------
+async function getHourly() {
+    return _loadFromStorage('mganalytics_hourly');
+}
+
+async function addHourly(records) {
+    const all = await getHourly();
+    const key = r => `${r.date}|${r.hour}`;
+    const existing = new Set(all.map(key));
+    const fresh = records.filter(r => !existing.has(key(r)));
+    if (!fresh.length) return 0;
+    const merged = [...all, ...fresh];
+    _saveToStorage('mganalytics_hourly', merged);
+    return fresh.length;
+}
 
 window.DB = DB;
